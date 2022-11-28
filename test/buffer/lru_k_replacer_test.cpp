@@ -97,4 +97,65 @@ TEST(LRUKReplacerTest, SampleTest) {
   lru_replacer.Remove(1);
   ASSERT_EQ(0, lru_replacer.Size());
 }
+
+// hack
+TEST(LRUKReplacerTest, Size) {
+  {
+    LRUKReplacer lru_replacer(10, 2);
+    lru_replacer.RecordAccess(1);
+    lru_replacer.SetEvictable(1, true);
+    lru_replacer.RecordAccess(2);
+    lru_replacer.SetEvictable(2, true);
+    lru_replacer.RecordAccess(3);
+    lru_replacer.SetEvictable(3, true);
+    ASSERT_EQ(3, lru_replacer.Size());
+    lru_replacer.Remove(1);
+    ASSERT_EQ(2, lru_replacer.Size());
+
+    lru_replacer.SetEvictable(1, true);  // 鳖孙 对不存在对页面做操作
+    lru_replacer.SetEvictable(2, true);
+    lru_replacer.SetEvictable(3, true);
+    lru_replacer.Remove(2);
+    ASSERT_EQ(1, lru_replacer.Size());
+
+    // Delete non existent page should do nothing
+    lru_replacer.Remove(1);
+    lru_replacer.Remove(4);
+    ASSERT_EQ(1, lru_replacer.Size());
+  }
+}
+
+TEST(LRUKReplacerTest, Evict) {
+  {
+    LRUKReplacer lru_replacer(10, 3);
+    int result;
+    lru_replacer.RecordAccess(1);  // ts=0
+    lru_replacer.RecordAccess(2);  // ts=1
+    lru_replacer.RecordAccess(3);  // ts=2
+    lru_replacer.RecordAccess(4);  // ts=3
+    lru_replacer.RecordAccess(1);  // ts=4
+    lru_replacer.RecordAccess(2);  // ts=5
+    lru_replacer.RecordAccess(3);  // ts=6 不应该把提高3的存留优先级,访问次数还没到k呢
+    lru_replacer.RecordAccess(1);  // ts=7
+    lru_replacer.RecordAccess(2);  // ts=8
+    lru_replacer.SetEvictable(1, true);
+    lru_replacer.SetEvictable(2, true);
+    lru_replacer.SetEvictable(3, true);
+    lru_replacer.SetEvictable(4, true);
+
+    // Max backward k distance follow lru
+    ASSERT_EQ(true, lru_replacer.Evict(&result)) << "Check your return value behavior for LRUKReplacer::Evict";
+    ASSERT_EQ(3, result) << "Check your return value behavior for LRUKReplacer::Evict";
+    lru_replacer.RecordAccess(4);  // ts=9
+    lru_replacer.RecordAccess(4);  // ts=10
+
+    // Now 1 has largest backward k distance, followed by 2 and 4
+    ASSERT_EQ(true, lru_replacer.Evict(&result)) << "Check your return value behavior for LRUKReplacer::Evict";
+    ASSERT_EQ(1, result) << "Check your return value behavior for LRUKReplacer::Evict";
+    ASSERT_EQ(true, lru_replacer.Evict(&result)) << "Check your return value behavior for LRUKReplacer::Evict";
+    ASSERT_EQ(2, result) << "Check your return value behavior for LRUKReplacer::Evict";
+    ASSERT_EQ(true, lru_replacer.Evict(&result)) << "Check your return value behavior for LRUKReplacer::Evict";
+    ASSERT_EQ(4, result) << "Check your return value behavior for LRUKReplacer::Evict";
+  }
+}
 }  // namespace bustub

@@ -22,14 +22,11 @@ void LRUKReplacer::RecordAccess(frame_id_t frame_id) {
   //  如何为每个页面维护一个访问历史
   size_t count = ++hit_count_[frame_id];
   if (count < k_) {   // 更新其在history_lru中的位置
-    if (count > 1) {  // 用history_map_判断不会有区别吧
-      auto it = history_map_[frame_id];
-      history_list_.erase(it);  // list erase只能传iter的,不像map的erase那么多样(有三种)
-                                //      history_map_.erase(frame_id); 没必要, 后面直接覆盖的
+    if (count > 1) {  // 用history_map_.count(frame_id)>0判断应该也行
+      return;         // 不要调整history中的顺序!只要没到k,访问任何元素也不会改变其优先级
     }
     history_list_.emplace_front(frame_id);  // 删的时候先map后list, 存的时候刚好相反
     history_map_[frame_id] = history_list_.begin();
-
   } else if (hit_count_[frame_id] == k_) {  // 从history移入cache
     auto it = history_map_[frame_id];
     history_map_.erase(frame_id);
@@ -89,6 +86,9 @@ auto LRUKReplacer::Evict(frame_id_t *frame_id) -> bool {
 // 是需要给每个frame_id都建立一个元数据信息吗(比如bool类型的evictable)，那每个frame必须调用setEvictable?(这个讨论见.h文件)
 // 在cache_lru中的frame被setEvict两次应该回到哪里呢？(想复杂了,就回原地,关键是可以不真正移动元素呢,只需在evict前判断下该frame_id是否可以移除即可)
 void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
+  if (hit_count_[frame_id] == 0) {  // 保护措施: 以防用户对不存在的frame做操作而改变lru相关结构
+    return;
+  }
   // evictable -> unevictable
   if (evictable_[frame_id] && !set_evictable) {
     evictable_[frame_id] = false;
@@ -103,9 +103,9 @@ void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
 
 void LRUKReplacer::Remove(frame_id_t frame_id) {
   if (!evictable_[frame_id]) {
-    return;
+    return;  // throw an exception
   }
-  // 不动free_list?
+  // 不动free_list? 额, 你忘了lru_replacer和free_list是平级关系了？
   if (hit_count_[frame_id] < k_) {
     auto it = history_map_[frame_id];
     history_list_.erase(it);
