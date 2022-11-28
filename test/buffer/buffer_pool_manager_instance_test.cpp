@@ -23,7 +23,7 @@ namespace bustub {
 
 // NOLINTNEXTLINE
 // Check whether pages containing terminal characters can be recovered
-TEST(BufferPoolManagerInstanceTest, DISABLED_BinaryDataTest) {
+TEST(BufferPoolManagerInstanceTest, BinaryDataTest) {
   const std::string db_name = "test.db";
   const size_t buffer_pool_size = 10;
   const size_t k = 5;
@@ -89,7 +89,7 @@ TEST(BufferPoolManagerInstanceTest, DISABLED_BinaryDataTest) {
 }
 
 // NOLINTNEXTLINE
-TEST(BufferPoolManagerInstanceTest, DISABLED_SampleTest) {
+TEST(BufferPoolManagerInstanceTest, SampleTest) {
   const std::string db_name = "test.db";
   const size_t buffer_pool_size = 10;
   const size_t k = 5;
@@ -111,24 +111,24 @@ TEST(BufferPoolManagerInstanceTest, DISABLED_SampleTest) {
   // Scenario: We should be able to create new pages until we fill up the buffer pool.
   for (size_t i = 1; i < buffer_pool_size; ++i) {
     EXPECT_NE(nullptr, bpm->NewPage(&page_id_temp));
-  }
+  }  // 10个frame都pin住要访问了, free_list为空了, 加入lru的history中但是evictable=false,所以其curr_size=0;
 
   // Scenario: Once the buffer pool is full, we should not be able to create any new pages.
   for (size_t i = buffer_pool_size; i < buffer_pool_size * 2; ++i) {
     EXPECT_EQ(nullptr, bpm->NewPage(&page_id_temp));
-  }
+  }  // 但会花掉自增的page_id, 之后再NewPage要从20开始了
 
   // Scenario: After unpinning pages {0, 1, 2, 3, 4} and pinning another 4 new pages,
   // there would still be one buffer page left for reading page 0.
   for (int i = 0; i < 5; ++i) {
     EXPECT_EQ(true, bpm->UnpinPage(i, true));
-  }
+  }  // 现在lru中history的cur_size=5了
   for (int i = 0; i < 4; ++i) {
     EXPECT_NE(nullptr, bpm->NewPage(&page_id_temp));
-  }
+  }  // 替换掉4个lru中evictable=true的frame(至于lru中最后留下的是哪个frame我们不得而知5?) page0123肯定是被换出了
 
   // Scenario: We should be able to fetch the data we wrote a while ago.
-  page0 = bpm->FetchPage(0);
+  page0 = bpm->FetchPage(0);  // page=0要fetch进来把page4踢出去并占掉其所在的frame
   EXPECT_EQ(0, strcmp(page0->GetData(), "Hello"));
 
   // Scenario: If we unpin page 0 and then make a new page, all the buffer pages should

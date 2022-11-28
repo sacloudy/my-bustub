@@ -177,5 +177,7 @@ class BufferPoolManagerInstance : public BufferPoolManager {
   }
 
   // TODO(student): You may add additional private members and helper functions
+  auto FindReplace() -> frame_id_t;
+  void InitNewPage(frame_id_t frame_id, page_id_t id);
 };
 }  // namespace bustub

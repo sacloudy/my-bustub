@@ -30,10 +30,10 @@ BufferPoolManagerInstance::BufferPoolManagerInstance(size_t pool_size, DiskManag
     free_list_.emplace_back(static_cast<int>(i));
   }
 
-  // TODO(students): remove this line after you have implemented the buffer pool manager
-  throw NotImplementedException(
-      "BufferPoolManager is not implemented yet. If you have finished implementing BPM, please remove the throw "
-      "exception line in `buffer_pool_manager_instance.cpp`.");
+  //  // TODO(students): remove this line after you have implemented the buffer pool manager
+  //  throw NotImplementedException(
+  //      "BufferPoolManager is not implemented yet. If you have finished implementing BPM, please remove the throw "
+  //      "exception line in `buffer_pool_manager_instance.cpp`.");
 }
 
 BufferPoolManagerInstance::~BufferPoolManagerInstance() {
@@ -42,18 +42,142 @@ BufferPoolManagerInstance::~BufferPoolManagerInstance() {
   delete replacer_;
 }
 
-auto BufferPoolManagerInstance::NewPgImp(page_id_t *page_id) -> Page * { return nullptr; }
+auto BufferPoolManagerInstance::FlushPgImp(page_id_t page_id) -> bool {
+  if (page_id == INVALID_PAGE_ID) {
+    return false;
+  }
+  frame_id_t frame_id;
+  if (!page_table_->Find(page_id, frame_id)) {
+    return false;
+  }
+  disk_manager_->WritePage(pages_[frame_id].GetPageId(), pages_[frame_id].GetData());
+  pages_[frame_id].is_dirty_ = false;
+  return true;
+}
 
-auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * { return nullptr; }
+void BufferPoolManagerInstance::FlushAllPgsImp() {
+  for (size_t i = 0; i < pool_size_; i++) {
+    if (pages_[i].is_dirty_ && pages_[i].page_id_ != INVALID_PAGE_ID) {
+      disk_manager_->WritePage(pages_[i].GetPageId(), pages_[i].GetData());
+      pages_[i].is_dirty_ = false;
+    }
+  }
+}
 
-auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> bool { return false; }
+auto BufferPoolManagerInstance::NewPgImp(page_id_t *page_id) -> Page * {
+  int new_page_id = AllocatePage();
+  // 先从freelist中找
+  //    更新页表
+  // 再从replacer中找
+  //    更新page_table(删旧增新,可能还会包含刷脏的过程)
+  // 希望把上面这个过程提成一个函数find_replace()
+  frame_id_t frame_id = FindReplace();
+  *page_id = new_page_id;
+  if (frame_id == -1) {
+    return nullptr;
+  }
+  page_table_->Insert(new_page_id, frame_id);
+  // 谨记andy在头文件里写的注释, 这里该Update the new page metadata, zero out the memory and return the page pointer.
+  InitNewPage(frame_id, new_page_id);
 
-auto BufferPoolManagerInstance::FlushPgImp(page_id_t page_id) -> bool { return false; }
+  replacer_->RecordAccess(frame_id);
+  replacer_->SetEvictable(frame_id, false);
+  return &pages_[frame_id];
+}
 
-void BufferPoolManagerInstance::FlushAllPgsImp() {}
+auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * {
+  frame_id_t frame_id;
+  if (page_table_->Find(page_id, frame_id)) {  // 找到page_id对应的frame_id了
+    // lock
+    //    Page page = Page(); 确实没法这样构造page变量，就还是page_[frame_id]这样写吧
+    //    page.data_ = pages_[frame_id];
+    pages_[frame_id].pin_count_++;
+    replacer_->RecordAccess(frame_id);
+    return &pages_[frame_id];
+  }
 
-auto BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) -> bool { return false; }
+  // 当前页不在buffer pool中, 该读磁盘了, 但也要小心buffer pool满了且无法替换的情况
+  frame_id_t replace_fid = FindReplace();
+  if (replace_fid == -1) {
+    return nullptr;
+  }
+  page_table_->Insert(page_id, replace_fid);
+  InitNewPage(replace_fid, page_id);
+  replacer_->RecordAccess(replace_fid);  // 忘了这个导致183行的page0 = bpm->FetchPage(0);执行完history只有9个元素!
+  disk_manager_->ReadPage(page_id, pages_[replace_fid].GetData());
+  return &pages_[replace_fid];
+}
+
+auto BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) -> bool {
+  frame_id_t frame_id;
+  if (!page_table_->Find(page_id, frame_id)) {
+    return true;  // 语义相符
+  }
+  if (pages_[frame_id].pin_count_ != 0) {
+    return false;
+  }
+  if (pages_[frame_id].IsDirty()) {
+    disk_manager_->WritePage(pages_[frame_id].GetPageId(), pages_[frame_id].GetData());
+    pages_[frame_id].is_dirty_ = false;
+  }
+  page_table_->Remove(page_id);
+
+  replacer_->Remove(frame_id);
+  free_list_.push_back(frame_id);
+  // reset metadata
+  pages_[frame_id].page_id_ = INVALID_PAGE_ID;
+  pages_[frame_id].is_dirty_ = false;
+  pages_[frame_id].pin_count_ = 0;
+  //  pages_[frame_id].ResetMemory();
+  DeallocatePage(page_id);
+  return true;
+}
+
+auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> bool {
+  frame_id_t frame_id;
+  if (!page_table_->Find(page_id, frame_id)) {
+    return false;
+  }
+  if (pages_[frame_id].pin_count_ <= 0) {
+    return false;
+  }
+  if (--pages_[frame_id].pin_count_ == 0) {
+    replacer_->SetEvictable(frame_id, true);
+  }
+  pages_[frame_id].is_dirty_ |= is_dirty;
+  return true;
+}
 
 auto BufferPoolManagerInstance::AllocatePage() -> page_id_t { return next_page_id_++; }
+
+// 自建函数(主要是因为FetchPg和NewPg的逻辑的相似程度)
+// 如果free_list_为空而且lru_replacer也都被pin住了就返回-1
+auto BufferPoolManagerInstance::FindReplace() -> frame_id_t {  // 不这样写的话:cling-tidy:use a trailing return type.
+  frame_id_t frame_id;
+  if (!free_list_.empty()) {
+    // 1. 先从空闲链表
+    frame_id = free_list_.back();
+    free_list_.pop_back();
+  } else {
+    // 2. 再从替换器replacer中找
+    if (!replacer_->Evict(&frame_id)) {
+      return -1;
+    }
+
+    if (pages_[frame_id].IsDirty()) {
+      disk_manager_->WritePage(pages_[frame_id].GetPageId(), pages_[frame_id].GetData());
+      pages_[frame_id].is_dirty_ = false;
+    }
+    page_table_->Remove(pages_[frame_id].GetPageId());
+  }
+  return frame_id;
+}
+
+void BufferPoolManagerInstance::InitNewPage(frame_id_t frame_id, page_id_t page_id) {
+  pages_[frame_id].page_id_ = page_id;
+  pages_[frame_id].pin_count_ = 1;
+  pages_[frame_id].is_dirty_ = false;
+  // 感觉不用zero out the memory也行吧, 如果后面发现不行了就调用page里的ResetMemory方法
+}
 
 }  // namespace bustub
