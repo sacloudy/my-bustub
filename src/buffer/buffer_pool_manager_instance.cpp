@@ -89,9 +89,10 @@ auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * {
   frame_id_t frame_id;
   if (page_table_->Find(page_id, frame_id)) {  // 找到page_id对应的frame_id了
     // lock
-    //    Page page = Page(); 确实没法这样构造page变量，就还是page_[frame_id]这样写吧
-    //    page.data_ = pages_[frame_id];
     pages_[frame_id].pin_count_++;
+    replacer_->SetEvictable(frame_id, false);  // 这个bug找的有点辛苦了:hack下来TEST(FetchPage)debug了一遍才发现
+    // setEvictable就应该永远紧跟在pin_count变化之后, UnpinPgImp也是紧跟
+    // pin_count++还不用特判pin_count是不是原来就>0(i.e.evictable本来就是false),更应该紧跟!
     replacer_->RecordAccess(frame_id);
     return &pages_[frame_id];
   }
@@ -135,16 +136,13 @@ auto BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) -> bool {
 
 auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> bool {
   frame_id_t frame_id;
-  if (!page_table_->Find(page_id, frame_id)) {
-    return false;
-  }
-  if (pages_[frame_id].pin_count_ <= 0) {
+  if (!page_table_->Find(page_id, frame_id) || pages_[frame_id].pin_count_ <= 0) {
     return false;
   }
   if (--pages_[frame_id].pin_count_ == 0) {
     replacer_->SetEvictable(frame_id, true);
   }
-  pages_[frame_id].is_dirty_ |= is_dirty;
+  pages_[frame_id].is_dirty_ |= is_dirty;  // 原本就脏/现在要设置为脏 有其一就为脏啦
   return true;
 }
 
@@ -177,7 +175,8 @@ void BufferPoolManagerInstance::InitNewPage(frame_id_t frame_id, page_id_t page_
   pages_[frame_id].page_id_ = page_id;
   pages_[frame_id].pin_count_ = 1;
   pages_[frame_id].is_dirty_ = false;
-  // 感觉不用zero out the memory也行吧, 如果后面发现不行了就调用page里的ResetMemory方法
+  // 感觉不用zero out the memory也行吧, 不过还是加上吧, 不然debug的时候不好看
+  pages_[frame_id].ResetMemory();  // 比如fetch进来的新页内存中还是放着旧页的内容不太好, 见TEST(FetchPage)
 }
 
 }  // namespace bustub

@@ -14,8 +14,8 @@
 namespace bustub {
 
 LRUKReplacer::LRUKReplacer(size_t num_frames, size_t k) : replacer_size_(num_frames), k_(k) {
-  hit_count_.resize(replacer_size_ + 1);  // 也没说frame_id是从0还是1开始鸭
-  evictable_.resize(replacer_size_ + 1);
+  hit_count_.resize(replacer_size_);  // frame_id从0开始呢
+  evictable_.resize(replacer_size_);
 }
 
 void LRUKReplacer::RecordAccess(frame_id_t frame_id) {
