@@ -25,13 +25,13 @@ namespace bustub {
 
 /**
  * LRUKReplacer implements the LRU-k replacement policy.
- *
+ * 缓冲区管理策略的对象就是frame中的page(有数据且没有的pin住),看下面的意思是有个evictable标记?
  * The LRU-k algorithm evicts a frame whose backward k-distance is maximum
  * of all frames. Backward k-distance is computed as the difference in time between
- * current timestamp and the timestamp of kth previous access.
+ * current timestamp and the timestamp of kth previous access.就是淘汰上k个访问跨距最长的
  *
- * A frame with less than k historical references is given
- * +inf as its backward k-distance. When multiple frames have +inf backward k-distance,
+ * A frame with less than k historical references is given K次都不够的肯定优先淘汰
+ * +inf as its backward k-distance. When multipe frames have +inf backward k-distance,
  * classical LRU algorithm is used to choose victim.
  */
 class LRUKReplacer {
@@ -136,10 +136,22 @@ class LRUKReplacer {
   // TODO(student): implement me! You can replace these member variables as you like.
   // Remove maybe_unused if you start using them.
   [[maybe_unused]] size_t current_timestamp_{0};
-  [[maybe_unused]] size_t curr_size_{0};
-  [[maybe_unused]] size_t replacer_size_;
-  [[maybe_unused]] size_t k_;
+  // 直觉上感觉也许用上这个字段history可能就不需要lru链表维护顺序了,只需要一个map记录访问次数就可以了(其实vector就行:下标是frame_id嘛)
+  // 去掉unused还不行 error: private field 'current_timestamp_' is not used [-Werror,-Wunused-private-field]
+  size_t curr_size_{0};  // 有三种地方需要调用curr_size__--
+  size_t replacer_size_;
+  size_t k_;
   std::mutex latch_;
+
+  // history lru = history_map_ + history_list_
+  std::unordered_map<frame_id_t, std::list<frame_id_t>::iterator> history_map_;
+  std::list<frame_id_t> history_list_;
+  // cache lru = cache_map_ + cache_list_
+  std::unordered_map<frame_id_t, std::list<frame_id_t>::iterator> cache_map_;
+  std::list<frame_id_t> cache_list_;
+  // meta data for each frame
+  std::vector<bool> evictable_;
+  std::vector<size_t> hit_count_;
 };
 
 }  // namespace bustub
