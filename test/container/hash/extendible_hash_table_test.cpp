@@ -10,14 +10,13 @@
 
 namespace bustub {
 
-TEST(ExtendibleHashTableTest, DISABLED_SampleTest) {
+TEST(ExtendibleHashTableTest, SampleTest) {
   auto table = std::make_unique<ExtendibleHashTable<int, std::string>>(2);
-
-  table->Insert(1, "a");
-  table->Insert(2, "b");
-  table->Insert(3, "c");
-  table->Insert(4, "d");
-  table->Insert(5, "e");
+  table->Insert(1, "a");  // bucket_id = 1
+  table->Insert(2, "b");  // bucket_id = 0
+  table->Insert(3, "c");  // bucket_id = 1
+  table->Insert(4, "d");  // bucket_id = 0
+  table->Insert(5, "e");  // 目录分裂
   table->Insert(6, "f");
   table->Insert(7, "g");
   table->Insert(8, "h");
@@ -42,7 +41,7 @@ TEST(ExtendibleHashTableTest, DISABLED_SampleTest) {
   EXPECT_FALSE(table->Remove(20));
 }
 
-TEST(ExtendibleHashTableTest, DISABLED_ConcurrentInsertTest) {
+TEST(ExtendibleHashTableTest, ConcurrentInsertTest) {
   const int num_runs = 50;
   const int num_threads = 3;
 

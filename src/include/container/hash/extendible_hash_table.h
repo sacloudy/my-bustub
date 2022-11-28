@@ -160,7 +160,7 @@ class ExtendibleHashTable : public HashTable<K, V> {
    private:
     // TODO(student): You may add additional private members and helper functions
     size_t size_;
-    int depth_;
+    int depth_;  // 本bucket只看低depth_位, 只有等于global depth了才不会有多个dir_的指针指向
     std::list<std::pair<K, V>> list_;
   };
 
@@ -169,8 +169,9 @@ class ExtendibleHashTable : public HashTable<K, V> {
   // you don't need.
 
   int global_depth_;    // The global depth of the directory
-  size_t bucket_size_;  // The size of a bucket
+  size_t bucket_size_;  // The size of a bucket 定值
   int num_buckets_;     // The number of buckets in the hash table
+                        // 把数据搬移进新桶才算吧,甚至可能把旧🪣的元素搬空就--了吧
   mutable std::mutex latch_;
   std::vector<std::shared_ptr<Bucket>> dir_;  // The directory of the hash table
 
