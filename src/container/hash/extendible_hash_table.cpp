@@ -23,10 +23,12 @@ namespace bustub {
 
 template <typename K, typename V>  // <K,V> 分别是 <page_id_t, frame_id_t>
 ExtendibleHashTable<K, V>::ExtendibleHashTable(size_t bucket_size)
-    : global_depth_(1), bucket_size_(bucket_size), num_buckets_(1) {
-  dir_.resize(2);
-  dir_[0] = std::make_shared<Bucket>(bucket_size, 1);  // 那上面初始化列表中的bucket_size有什么用呢
-  dir_[1] = std::make_shared<Bucket>(bucket_size, 1);  //   还是对C++不太熟悉(内部类)
+    : global_depth_(0), bucket_size_(bucket_size), num_buckets_(1) {
+  //  dir_.resize(2);
+  //  dir_[0] = std::make_shared<Bucket>(bucket_size, 1);  // 那上面初始化列表中的bucket_size有什么用呢
+  //  dir_[1] = std::make_shared<Bucket>(bucket_size, 1);  //   还是对C++不太熟悉(内部类)
+  // 初始化：全局深度为0，局部深度为0，桶数量为1, 这是andy在函数签名中给的(是chi先生给的555),不能乱改的
+  dir_.push_back(std::make_shared<Bucket>(bucket_size, 0));  // bucket也要初始化大小为0
 }
 
 template <typename K, typename V>
@@ -84,29 +86,30 @@ auto ExtendibleHashTable<K, V>::Remove(const K &key) -> bool {
 template <typename K, typename V>
 void ExtendibleHashTable<K, V>::Insert(const K &key, const V &value) {
   std::lock_guard<std::mutex> guard(latch_);
-  //  int bucket_id = IndexOf(key);                             // global_depth_
+  //  int bucket_id = IndexOf(key);
   //  std::shared_ptr<Bucket> target_bucket = dir_[bucket_id];  // 不想用auto啊
-  // //  if (!dir_[bucket_id]->IsFull()) { // 一般先处理特殊逻辑
-  // //    dir_[bucket_id]->Insert(key, value);
-  // //  } else {}
-
-  // 桶满, 需要桶分裂,也许还需要目录分裂
-  //  while (target_bucket->IsFull()) {  // li是改变dir_.size()扩大到可以容纳增长的size_
-  while (dir_[IndexOf(key)]->IsFull()) {
-    // 再把变量补回来哈哈
-    int bucket_id = IndexOf(key);
+  //  if (!dir_[bucket_id]->IsFull()) { // 首先不能用if啊, 很有可能一次桶分裂桶内已满的元素一个都没有移走
+  //    dir_[bucket_id]->Insert(key, value);
+  //  } else {桶满扩容}
+  // 第二个问题是一个code pattern: 预处理与复用(提前处理特殊逻辑+复用一般逻辑)
+  //    写递归逻辑一般先写通用逻辑再写conner case,
+  //    但在这里明显特殊逻辑是比通用逻辑多出一个步骤的(桶分裂完还要正常插入呢),所以应该先写特殊逻辑(桶满情况)
+  //  while (target_bucket->IsFull()) {  // 额上while也不能这样写...要死循环了...
+  while (dir_[IndexOf(key)]->IsFull()) {  // li的改变: 增加global_depth_后算出的桶号就变了
+    int bucket_id = IndexOf(key);         // 为了后面写起来方便, 再把变量补回来hh
     std::shared_ptr<Bucket> target_bucket = dir_[bucket_id];
-    // 检查是否需要目录扩容
+    // 有可能需要目录扩容 (想想如何能再次用上code pattern:预处理与复用)
     if (target_bucket->GetDepth() == GetGlobalDepthInternal()) {
       global_depth_++;
       size_t capacity = dir_.size() << 1;
       dir_.resize(capacity);
       for (size_t i = capacity / 2; i < dir_.size(); i++) {  // 本来用的是int: 不转error？C-style cast warning？
-        dir_[i] = dir_[i - capacity / 2];  // 先都指向旧桶, 后面再根据元素的具体分配情况改变指针指向
+        dir_[i] = dir_[i - capacity / 2];  // 先都指向旧桶, 后面再根据元素的具体分配情况改变指针指向(用上啦)
       }
     }
     // 桶分裂(无论是否经过目录扩容逻辑都一样了:dir有多个指针指向将要分裂的桶)
     int mask = 1 << GetLocalDepthInternal(bucket_id);
+    // 逻辑上是要把一部分元素移除旧桶,实际操作上是开两个新桶
     auto zero_bucket = std::make_shared<Bucket>(bucket_size_, GetLocalDepthInternal(bucket_id) + 1);
     auto one_bucket = std::make_shared<Bucket>(bucket_size_, GetLocalDepthInternal(bucket_id) + 1);
     for (auto &[k, v] : target_bucket->GetItems()) {
@@ -117,11 +120,14 @@ void ExtendibleHashTable<K, V>::Insert(const K &key, const V &value) {
         one_bucket->Insert(k, v);
       }
     }
-    if (!zero_bucket->GetItems().empty() && !one_bucket->GetItems().empty()) {
-      num_buckets_++;
-    }
+    // 下面对num_buckets_的增加操作属实是自作聪明了, 其实就算全部没有搬移也要开新桶呢, 也要把目录指针指向新开的空桶呢
+    // if (!zero_bucket->GetItems().empty() && !one_bucket->GetItems().empty()) {
+    //   num_buckets_++;  // 全部没有搬移或者全部都搬移都不能走到这里
+    // }
+    num_buckets_++;
+    // 移动目录指针
     for (size_t i = 0; i < dir_.size(); i++) {
-      if (dir_[i] == target_bucket) {
+      if (dir_[i] == target_bucket) {  // 这里触发次数不一定是两次哦，如果有多个指针指向待分裂的桶就会触发多次的
         if ((i & mask) == 0U) {
           dir_[i] = zero_bucket;
         } else {
@@ -129,13 +135,9 @@ void ExtendibleHashTable<K, V>::Insert(const K &key, const V &value) {
         }
       }
     }
-    //    if(!zero_bucket->GetItems().empty())
-    //      dir_[bucket_id] = zero_bucket;
-    //    if(!one_bucket->GetItems().empty())
-    //      dir_[bucket_id + capacity] = one_bucket; 之前桶分裂逻辑也错误的放在目录扩容里面了
   }
 
-  // 桶不满, 直接插入(有重复就覆盖)
+  // 终于到一般逻辑了: 桶不满, 直接插入(有重复就覆盖)
   dir_[IndexOf(key)]->Insert(key, value);
 }
 

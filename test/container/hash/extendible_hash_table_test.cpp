@@ -12,11 +12,11 @@ namespace bustub {
 
 TEST(ExtendibleHashTableTest, SampleTest) {
   auto table = std::make_unique<ExtendibleHashTable<int, std::string>>(2);
-  table->Insert(1, "a");  // bucket_id = 1
+  table->Insert(1, "a");  // bucket_id = 0 一个
   table->Insert(2, "b");  // bucket_id = 0
-  table->Insert(3, "c");  // bucket_id = 1
-  table->Insert(4, "d");  // bucket_id = 0
-  table->Insert(5, "e");  // 目录分裂
+  table->Insert(3, "c");  // 桶分裂+目录分裂
+  table->Insert(4, "d");
+  table->Insert(5, "e");
   table->Insert(6, "f");
   table->Insert(7, "g");
   table->Insert(8, "h");
