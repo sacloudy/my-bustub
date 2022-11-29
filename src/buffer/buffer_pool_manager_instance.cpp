@@ -66,11 +66,6 @@ void BufferPoolManagerInstance::FlushAllPgsImp() {
 
 auto BufferPoolManagerInstance::NewPgImp(page_id_t *page_id) -> Page * {
   int new_page_id = AllocatePage();
-  // 先从freelist中找
-  //    更新页表
-  // 再从replacer中找
-  //    更新page_table(删旧增新,可能还会包含刷脏的过程)
-  // 希望把上面这个过程提成一个函数find_replace()
   frame_id_t frame_id = FindReplace();
   *page_id = new_page_id;
   if (frame_id == -1) {
@@ -148,8 +143,7 @@ auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> 
 
 auto BufferPoolManagerInstance::AllocatePage() -> page_id_t { return next_page_id_++; }
 
-// 自建函数(主要是因为FetchPg和NewPg的逻辑的相似程度)
-// 如果free_list_为空而且lru_replacer也都被pin住了就返回-1
+// 规范一点, 函数注释写到头文件中
 auto BufferPoolManagerInstance::FindReplace() -> frame_id_t {  // 不这样写的话:cling-tidy:use a trailing return type.
   frame_id_t frame_id;
   if (!free_list_.empty()) {

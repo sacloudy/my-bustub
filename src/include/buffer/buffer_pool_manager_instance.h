@@ -177,7 +177,18 @@ class BufferPoolManagerInstance : public BufferPoolManager {
   }
 
   // TODO(student): You may add additional private members and helper functions
+  // 这两个自建函数都是为了封装FetchPg和NewPg中的相似逻辑~
+  /**
+   * @brief 先从freelist中找, 找到更新页表. 如果freelist空了,
+   * 再从replacer中找,更新page_table(删旧增新,可能还会包含刷脏的过程)
+   * @return 如果free_list_为空而且lru_replacer也都被pin住了就返回-1, 正常情况返回将要被替换掉的frame_id.
+   */
   auto FindReplace() -> frame_id_t;
+  /**
+   * @brief 对刚new/fetch的页面进行初始化(i.e.设置frame中page的metadata)
+   * @param frame_id
+   * @param id
+   */
   void InitNewPage(frame_id_t frame_id, page_id_t id);
 };
 }  // namespace bustub

@@ -33,24 +33,26 @@ ExtendibleHashTable<K, V>::ExtendibleHashTable(size_t bucket_size)
 
 template <typename K, typename V>
 auto ExtendibleHashTable<K, V>::IndexOf(const K &key) -> size_t {
+  //  std::lock_guard<std::mutex> guard(latch_); 不死锁等啥呢:内部方法不要加锁哦
   int mask = (1 << global_depth_) - 1;
   return std::hash<K>()(key) & mask;
 }
 
 template <typename K, typename V>
 auto ExtendibleHashTable<K, V>::GetGlobalDepth() const -> int {
-  std::scoped_lock<std::mutex> lock(latch_);
+  std::lock_guard<std::mutex> guard(latch_);  // 这里加锁就要保证ExtendibleHashTable别的方法不会调用它
   return GetGlobalDepthInternal();
 }
 
 template <typename K, typename V>
 auto ExtendibleHashTable<K, V>::GetGlobalDepthInternal() const -> int {
+  //  std::lock_guard<std::mutex> guard(latch_); 不死锁等啥呢:内部方法不要加锁哦
   return global_depth_;
 }
 
 template <typename K, typename V>
 auto ExtendibleHashTable<K, V>::GetLocalDepth(int dir_index) const -> int {
-  std::scoped_lock<std::mutex> lock(latch_);
+  std::lock_guard<std::mutex> guard(latch_);
   return GetLocalDepthInternal(dir_index);
 }
 
@@ -61,17 +63,19 @@ auto ExtendibleHashTable<K, V>::GetLocalDepthInternal(int dir_index) const -> in
 
 template <typename K, typename V>
 auto ExtendibleHashTable<K, V>::GetNumBuckets() const -> int {
-  std::scoped_lock<std::mutex> lock(latch_);
+  std::lock_guard<std::mutex> guard(latch_);
   return GetNumBucketsInternal();
 }
 
 template <typename K, typename V>
 auto ExtendibleHashTable<K, V>::GetNumBucketsInternal() const -> int {
+  //  std::lock_guard<std::mutex> guard(latch_); 本地测试能过(你不看上面的GetNumBuckets灰着呢),交上去就死锁了
   return num_buckets_;
 }
 
 template <typename K, typename V>
 auto ExtendibleHashTable<K, V>::Find(const K &key, V &value) -> bool {
+  std::lock_guard<std::mutex> guard(latch_);
   //  int bucketId = hash(key, global_depth_);
   std::shared_ptr<Bucket> maybe_bucket = dir_[IndexOf(key)];  // auto的话下面就点不进去啦！
   return maybe_bucket->Find(key, value);
@@ -79,6 +83,7 @@ auto ExtendibleHashTable<K, V>::Find(const K &key, V &value) -> bool {
 
 template <typename K, typename V>
 auto ExtendibleHashTable<K, V>::Remove(const K &key) -> bool {
+  std::lock_guard<std::mutex> guard(latch_);
   std::shared_ptr<Bucket> maybe_bucket = dir_[IndexOf(key)];  // auto的话下面就点不进去啦！
   return maybe_bucket->Remove(key);
 }
@@ -99,7 +104,7 @@ void ExtendibleHashTable<K, V>::Insert(const K &key, const V &value) {
     int bucket_id = IndexOf(key);         // 为了后面写起来方便, 再把变量补回来hh
     std::shared_ptr<Bucket> target_bucket = dir_[bucket_id];
     // 有可能需要目录扩容 (想想如何能再次用上code pattern:预处理与复用)
-    if (target_bucket->GetDepth() == GetGlobalDepthInternal()) {
+    if (target_bucket->GetDepth() == GetGlobalDepthInternal()) {  // 去检查下这个方法没有加锁吧
       global_depth_++;
       size_t capacity = dir_.size() << 1;
       dir_.resize(capacity);
