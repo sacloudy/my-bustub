@@ -19,6 +19,7 @@ LRUKReplacer::LRUKReplacer(size_t num_frames, size_t k) : replacer_size_(num_fra
 }
 
 void LRUKReplacer::RecordAccess(frame_id_t frame_id) {
+  std::lock_guard<std::mutex> guard(latch_);
   //  如何为每个页面维护一个访问历史
   size_t count = ++hit_count_[frame_id];
   if (count < k_) {   // 更新其在history_lru中的位置
@@ -42,6 +43,7 @@ void LRUKReplacer::RecordAccess(frame_id_t frame_id) {
 }
 
 auto LRUKReplacer::Evict(frame_id_t *frame_id) -> bool {
+  std::lock_guard<std::mutex> guard(latch_);
   //  auto it = history_list_.rbegin();
   // begin()类型可以是std::list<frame_id_t>::iterator,但rbegin()不是这个(clion咋提示是iter<iter<>>了)
   auto it = history_list_.end();
@@ -86,6 +88,7 @@ auto LRUKReplacer::Evict(frame_id_t *frame_id) -> bool {
 // 是需要给每个frame_id都建立一个元数据信息吗(比如bool类型的evictable)，那每个frame必须调用setEvictable?(这个讨论见.h文件)
 // 在cache_lru中的frame被setEvict两次应该回到哪里呢？(想复杂了,就回原地,关键是可以不真正移动元素呢,只需在evict前判断下该frame_id是否可以移除即可)
 void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
+  std::lock_guard<std::mutex> guard(latch_);
   if (hit_count_[frame_id] == 0) {  // 保护措施: 以防用户对不存在的frame做操作而改变lru相关结构
     return;
   }
@@ -102,6 +105,7 @@ void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
 }
 
 void LRUKReplacer::Remove(frame_id_t frame_id) {
+  std::lock_guard<std::mutex> guard(latch_);
   if (!evictable_[frame_id]) {
     return;  // throw an exception
   }
