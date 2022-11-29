@@ -43,6 +43,7 @@ BufferPoolManagerInstance::~BufferPoolManagerInstance() {
 }
 
 auto BufferPoolManagerInstance::FlushPgImp(page_id_t page_id) -> bool {
+  std::lock_guard<std::mutex> guard(latch_);
   if (page_id == INVALID_PAGE_ID) {
     return false;
   }
@@ -56,6 +57,7 @@ auto BufferPoolManagerInstance::FlushPgImp(page_id_t page_id) -> bool {
 }
 
 void BufferPoolManagerInstance::FlushAllPgsImp() {
+  std::lock_guard<std::mutex> guard(latch_);
   for (size_t i = 0; i < pool_size_; i++) {
     if (pages_[i].is_dirty_ && pages_[i].page_id_ != INVALID_PAGE_ID) {
       disk_manager_->WritePage(pages_[i].GetPageId(), pages_[i].GetData());
@@ -65,6 +67,7 @@ void BufferPoolManagerInstance::FlushAllPgsImp() {
 }
 
 auto BufferPoolManagerInstance::NewPgImp(page_id_t *page_id) -> Page * {
+  std::lock_guard<std::mutex> guard(latch_);
   int new_page_id = AllocatePage();
   frame_id_t frame_id = FindReplace();
   *page_id = new_page_id;
@@ -81,6 +84,7 @@ auto BufferPoolManagerInstance::NewPgImp(page_id_t *page_id) -> Page * {
 }
 
 auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * {
+  std::lock_guard<std::mutex> guard(latch_);
   frame_id_t frame_id;
   if (page_table_->Find(page_id, frame_id)) {  // 找到page_id对应的frame_id了
     // lock
@@ -105,6 +109,7 @@ auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * {
 }
 
 auto BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) -> bool {
+  std::lock_guard<std::mutex> guard(latch_);
   frame_id_t frame_id;
   if (!page_table_->Find(page_id, frame_id)) {
     return true;  // 语义相符
@@ -124,12 +129,13 @@ auto BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) -> bool {
   pages_[frame_id].page_id_ = INVALID_PAGE_ID;
   pages_[frame_id].is_dirty_ = false;
   pages_[frame_id].pin_count_ = 0;
-  //  pages_[frame_id].ResetMemory();
-  DeallocatePage(page_id);
+  pages_[frame_id].ResetMemory();
+  //  DeallocatePage(page_id);
   return true;
 }
 
 auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> bool {
+  std::lock_guard<std::mutex> guard(latch_);
   frame_id_t frame_id;
   if (!page_table_->Find(page_id, frame_id) || pages_[frame_id].pin_count_ <= 0) {
     return false;
@@ -141,7 +147,10 @@ auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> 
   return true;
 }
 
-auto BufferPoolManagerInstance::AllocatePage() -> page_id_t { return next_page_id_++; }
+auto BufferPoolManagerInstance::AllocatePage() -> page_id_t {
+  //  std::lock_guard<std::mutex> guard(latch_); 额又不小心加锁了
+  return next_page_id_++;
+}
 
 // 规范一点, 函数注释写到头文件中
 auto BufferPoolManagerInstance::FindReplace() -> frame_id_t {  // 不这样写的话:cling-tidy:use a trailing return type.
