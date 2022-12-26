@@ -17,6 +17,7 @@
 namespace bustub {
 
 #define B_PLUS_TREE_INTERNAL_PAGE_TYPE BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>
+// 这里为什么不写page_id_t呢,是没必要,但那也是写成page_id更好看一些吧
 #define INTERNAL_PAGE_HEADER_SIZE 24
 #define INTERNAL_PAGE_SIZE ((BUSTUB_PAGE_SIZE - INTERNAL_PAGE_HEADER_SIZE) / (sizeof(MappingType)))
 /**
@@ -41,6 +42,12 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   auto KeyAt(int index) const -> KeyType;
   void SetKeyAt(int index, const KeyType &key);
   auto ValueAt(int index) const -> ValueType;
+
+  auto LookUp(const KeyType &key, KeyComparator comparator) -> page_id_t;  // 这里就不写ValueType了!
+  auto MoveHalfTo(BPlusTreeInternalPage *recipient, BufferPoolManager *bpm) -> void;
+  auto InsertAfterPageID(page_id_t old_page_id, const KeyType &new_key, page_id_t new_page_id) -> void;
+  auto ValueIndex(page_id_t id) -> int;
+  auto PopulateNewRoot(const ValueType &old_value, const KeyType &new_key, const ValueType &new_value) -> void;
 
  private:
   // Flexible array member for page data.

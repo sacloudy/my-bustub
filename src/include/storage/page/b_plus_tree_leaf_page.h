@@ -45,14 +45,19 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   // After creating a new leaf page from buffer pool, must call initialize
   // method to set default values
   void Init(page_id_t page_id, page_id_t parent_id = INVALID_PAGE_ID, int max_size = LEAF_PAGE_SIZE);
+  auto Insert(const KeyType &key, const ValueType &val, KeyComparator comparator) -> void;  // bool
   // helper methods
   auto GetNextPageId() const -> page_id_t;
   void SetNextPageId(page_id_t next_page_id);
   auto KeyAt(int index) const -> KeyType;
 
+  auto Lookup(const KeyType &key, ValueType &value, KeyComparator comparator) -> bool;
+  auto MoveHalfTo(BPlusTreeLeafPage *recipient, BufferPoolManager *bpm) -> void;
+  auto KeyIndex(const KeyType &key, KeyComparator comparator) -> int;
+
  private:
   page_id_t next_page_id_;
   // Flexible array member for page data.
-  MappingType array_[1];
+  MappingType array_[1];  // 这里是0还是1还是其他好像没关系, 关键是访问的时候不能直接用数字?非要用变量?
 };
 }  // namespace bustub

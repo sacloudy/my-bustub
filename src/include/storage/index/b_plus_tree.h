@@ -57,6 +57,21 @@ class BPlusTree {
   // return the page id of the root node
   auto GetRootPageId() -> page_id_t;
 
+  auto FindLeafPage(const KeyType &key) -> LeafPage *;
+
+  // 打开这个B+树的头文件遇到的第一个问题就是把哪些函数放到B+tree中实现, 哪些函数放到leaf/internal_node中实现?
+  //    进过思考后的结论就是: leaf/internal能共用的就想放在B+tree中, 比如Split,
+  //                    leaf/internal有不同逻辑的就只能放在各自的类中实现了比如MoveHalfTo
+  // 另一个问题是因为internal和leaf逻辑不同, 入参到底该怎么放什么类型呢?
+  //    经过参考别人的答案是:Split放模板参数N, InsertIntoParent放基类BPlusTreePage
+  template <typename N>
+  auto Split(N *node) -> N *;
+
+  auto InsertIntoParent(BPlusTreePage *old_page, const KeyType &key, BPlusTreePage *new_page, Transaction *Transaction)
+      -> void;
+
+  auto StartNewTree(const KeyType &key, const ValueType &value) -> void;
+
   // index iterator
   auto Begin() -> INDEXITERATOR_TYPE;
   auto Begin(const KeyType &key) -> INDEXITERATOR_TYPE;
