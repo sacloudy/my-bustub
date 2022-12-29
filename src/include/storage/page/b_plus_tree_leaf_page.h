@@ -54,6 +54,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   auto Lookup(const KeyType &key, ValueType &value, KeyComparator comparator) -> bool;
   auto MoveHalfTo(BPlusTreeLeafPage *recipient, BufferPoolManager *bpm) -> void;
   auto KeyIndex(const KeyType &key, KeyComparator comparator) -> int;
+  auto GetItem(int index) -> const MappingType &;
 
  private:
   page_id_t next_page_id_;

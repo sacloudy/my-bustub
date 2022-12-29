@@ -20,7 +20,7 @@
 
 namespace bustub {
 
-TEST(BPlusTreeTests, DISABLED_InsertTest1) {
+TEST(BPlusTreeTests, InsertTest1) {
   // create KeyComparator and index schema
   auto key_schema = ParseCreateStatement("a bigint");
   GenericComparator<8> comparator(key_schema.get());
@@ -45,12 +45,13 @@ TEST(BPlusTreeTests, DISABLED_InsertTest1) {
   rid.Set(static_cast<int32_t>(key), value);
   index_key.SetFromInteger(key);
   tree.Insert(index_key, rid, transaction);
-
+  //  tree.Draw(bpm, "inserttest");
+  tree.Print(bpm);
   auto root_page_id = tree.GetRootPageId();
   auto root_page = reinterpret_cast<BPlusTreePage *>(bpm->FetchPage(root_page_id)->GetData());
   ASSERT_NE(root_page, nullptr);
   ASSERT_TRUE(root_page->IsLeafPage());
-
+  // 验证了是leaf后就可以reinterpret成leafPage啦
   auto root_as_leaf = reinterpret_cast<BPlusTreeLeafPage<GenericKey<8>, RID, GenericComparator<8>> *>(root_page);
   ASSERT_EQ(root_as_leaf->GetSize(), 1);
   ASSERT_EQ(comparator(root_as_leaf->KeyAt(0), index_key), 0);
@@ -64,14 +65,14 @@ TEST(BPlusTreeTests, DISABLED_InsertTest1) {
   remove("test.log");
 }
 
-TEST(BPlusTreeTests, DISABLED_InsertTest2) {
+TEST(BPlusTreeTests, InsertTest2) {
   // create KeyComparator and index schema
   auto key_schema = ParseCreateStatement("a bigint");
   GenericComparator<8> comparator(key_schema.get());
 
   auto *disk_manager = new DiskManager("test.db");
   BufferPoolManager *bpm = new BufferPoolManagerInstance(50, disk_manager);
-  // create b+ tree
+  // create b+ tree (leaf和internal不相等也是奇葩, 稳定状态的leaf node只能放一个节点)
   BPlusTree<GenericKey<8>, RID, GenericComparator<8>> tree("foo_pk", bpm, comparator, 2, 3);
   GenericKey<8> index_key;
   RID rid;
@@ -83,12 +84,14 @@ TEST(BPlusTreeTests, DISABLED_InsertTest2) {
   auto header_page = bpm->NewPage(&page_id);
   (void)header_page;
 
-  std::vector<int64_t> keys = {1, 2, 3, 4, 5};
+  std::vector<int64_t> keys = {1, 2, 3};
   for (auto key : keys) {
     int64_t value = key & 0xFFFFFFFF;
     rid.Set(static_cast<int32_t>(key >> 32), value);
     index_key.SetFromInteger(key);
     tree.Insert(index_key, rid, transaction);
+    std::cout << std::endl;
+    //    tree.Print(bpm);
   }
 
   std::vector<RID> rids;
@@ -127,16 +130,16 @@ TEST(BPlusTreeTests, DISABLED_InsertTest2) {
   remove("test.log");
 }
 
-TEST(BPlusTreeTests, DISABLED_InsertTest3) {
+TEST(BPlusTreeTests, InsertTest3) {
   // create KeyComparator and index schema
   auto key_schema = ParseCreateStatement("a bigint");
-  GenericComparator<8> comparator(key_schema.get());
+  GenericComparator<16> comparator(key_schema.get());
 
   auto *disk_manager = new DiskManager("test.db");
   BufferPoolManager *bpm = new BufferPoolManagerInstance(50, disk_manager);
   // create b+ tree
-  BPlusTree<GenericKey<8>, RID, GenericComparator<8>> tree("foo_pk", bpm, comparator);
-  GenericKey<8> index_key;
+  BPlusTree<GenericKey<16>, RID, GenericComparator<16>> tree("foo_pk", bpm, comparator);
+  GenericKey<16> index_key;
   RID rid;
   // create transaction
   auto *transaction = new Transaction(0);
@@ -154,7 +157,9 @@ TEST(BPlusTreeTests, DISABLED_InsertTest3) {
     index_key.SetFromInteger(key);
     tree.Insert(index_key, rid, transaction);
   }
-
+  tree.Print(bpm);
+  //  tree.Draw(bpm, "/要写路径的");
+  LOG_DEBUG("------getVal---------------------------~~~~~");
   std::vector<RID> rids;
   for (auto key : keys) {
     rids.clear();
@@ -165,7 +170,7 @@ TEST(BPlusTreeTests, DISABLED_InsertTest3) {
     int64_t value = key & 0xFFFFFFFF;
     EXPECT_EQ(rids[0].GetSlotNum(), value);
   }
-
+  LOG_DEBUG("------iter1---------------------------~~~~~");
   int64_t start_key = 1;
   int64_t current_key = start_key;
   index_key.SetFromInteger(start_key);
@@ -178,6 +183,7 @@ TEST(BPlusTreeTests, DISABLED_InsertTest3) {
 
   EXPECT_EQ(current_key, keys.size() + 1);
 
+  LOG_DEBUG("------iter2---------------------------~~~~~ ");
   start_key = 3;
   current_key = start_key;
   index_key.SetFromInteger(start_key);

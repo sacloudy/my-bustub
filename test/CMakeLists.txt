@@ -24,7 +24,7 @@ foreach (bustub_test_source ${BUSTUB_TEST_SOURCES})
     string(REPLACE ".cpp" "" bustub_test_name ${bustub_test_filename})
 
     # Add the test target separately and as part of "make check-tests".
-    add_executable(${bustub_test_name} EXCLUDE_FROM_ALL ${bustub_test_source})
+    add_executable(${bustub_test_name} EXCLUDE_FROM_ALL ${bustub_test_source})  # 不知道为啥这里在后面自动给加上storage/b_plus_tree_scale_test.cpp, 写这个注释的原因是督促你后面要学CMake的
     add_dependencies(build-tests ${bustub_test_name})
     add_dependencies(check-tests ${bustub_test_name})
 

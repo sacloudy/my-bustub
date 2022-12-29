@@ -43,7 +43,7 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(page_id_t page_id, page_id_t parent_id, in
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::Lookup(const KeyType &key, ValueType &value, KeyComparator comparator) -> bool {
-  int l = 0;  // 我知道key0是无效的, 但0也确实在解空间中啊
+  int l = 0;  // 这里key可是有效的了
   int r = GetSize() - 1;
   while (l <= r) {
     int mid = (l + r) / 2;
@@ -154,6 +154,12 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyAt(int index) const -> KeyType {
   // replace with your own code
   KeyType key{array_[index].first};
   return key;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetItem(int index) -> const MappingType & {
+  assert(index >= 0 && index < GetSize());
+  return array_[index];
 }
 
 template class BPlusTreeLeafPage<GenericKey<4>, RID, GenericComparator<4>>;

@@ -13,6 +13,7 @@
 #include "buffer/buffer_pool_manager_instance.h"
 
 #include "common/exception.h"
+#include "common/logger.h"
 #include "common/macros.h"
 
 namespace bustub {
@@ -89,6 +90,7 @@ auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * {
   if (page_table_->Find(page_id, frame_id)) {  // 找到page_id对应的frame_id了
     // lock
     pages_[frame_id].pin_count_++;
+    LOG_DEBUG("page%d 的 pin_count++后等于%d了", pages_[frame_id].page_id_, pages_[frame_id].pin_count_);
     replacer_->SetEvictable(frame_id, false);  // 这个bug找的有点辛苦了:hack下来TEST(FetchPage)debug了一遍才发现
     // setEvictable就应该永远紧跟在pin_count变化之后, UnpinPgImp也是紧跟
     // pin_count++还不用特判pin_count是不是原来就>0(i.e.evictable本来就是false),更应该紧跟!
@@ -99,6 +101,7 @@ auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * {
   // 当前页不在buffer pool中, 该读磁盘了, 但也要小心buffer pool满了且无法替换的情况
   frame_id_t replace_fid = FindReplace();
   if (replace_fid == -1) {
+    LOG_DEBUG("buffer_pool满了, fetch不出page了(肯定是你哪里忘记Unpin了)!!!!!!!!!!!!!!!!!!");
     return nullptr;
   }
   page_table_->Insert(page_id, replace_fid);
@@ -140,8 +143,12 @@ auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> 
   if (!page_table_->Find(page_id, frame_id) || pages_[frame_id].pin_count_ <= 0) {
     return false;
   }
+  // 下面对pin_count--操作log对于找Unpin的bug(哪里忘记Unpin了)可太重要
   if (--pages_[frame_id].pin_count_ == 0) {
+    LOG_DEBUG("page%d的pin_count--后=0了, 可以被驱逐了", pages_[frame_id].page_id_);
     replacer_->SetEvictable(frame_id, true);
+  } else {
+    LOG_DEBUG("page%d的pin_count--后=%d", pages_[frame_id].page_id_, pages_[frame_id].pin_count_);
   }
   pages_[frame_id].is_dirty_ |= is_dirty;  // 原本就脏/现在要设置为脏 有其一就为脏啦
   return true;
@@ -177,6 +184,7 @@ auto BufferPoolManagerInstance::FindReplace() -> frame_id_t {  // 不这样写�
 void BufferPoolManagerInstance::InitNewPage(frame_id_t frame_id, page_id_t page_id) {
   pages_[frame_id].page_id_ = page_id;
   pages_[frame_id].pin_count_ = 1;
+  LOG_DEBUG("page%d Init后pin_count就是1喽", page_id);
   pages_[frame_id].is_dirty_ = false;
   // 感觉不用zero out the memory也行吧, 不过还是加上吧, 不然debug的时候不好看
   pages_[frame_id].ResetMemory();  // 比如fetch进来的新页内存中还是放着旧页的内容不太好, 见TEST(FetchPage)

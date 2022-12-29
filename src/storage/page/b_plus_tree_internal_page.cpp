@@ -101,12 +101,13 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveHalfTo(BPlusTreeInternalPage *recipient
     // LOG_DEBUG("#move key%d", array_[i - copy_start].first); 靠,泛型怎么printf呀,还是先用cout当log打下吧
     // std::cout << "#   move key " << array_[i].first << " to new page" << std::endl;
 
-    // update children's parent page(一开始忘了这步,可视化B+树的指针都不对~)
+    // update children's parent page
+    // 一开始忘了这步,可视化B+树中的指针都不对: 这说明可视化中父到子的指针竟然是用的child的parent_id画出来的
     auto child_raw_page = bpm->FetchPage(array_[i].second);
     auto child_tree_page = reinterpret_cast<BPlusTreePage *>(child_raw_page->GetData());
     child_tree_page->SetParentPageId(recipient->GetPageId());
     bpm->UnpinPage(array_[i].second, true);  // 再强化一下fetch会pin_count++的,用完一定要Unpin
-    LOG_DEBUG("[MoveHalfTo] modify the parent_id of child %d(page_id)", child_tree_page->GetPageId());
+    LOG_DEBUG("Modify the parent_id of child %d(page_id)", child_tree_page->GetPageId());
   }
   recipient->SetSize(total - copy_start);
   SetSize(copy_start);  // 算是惰性删除吧, 总数还是total不能变

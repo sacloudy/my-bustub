@@ -40,6 +40,7 @@ auto BPLUSTREE_TYPE::IsEmpty() const -> bool {
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::FindLeafPage(const KeyType &key) -> LeafPage * {
+  LOG_DEBUG("下面要fetch根节点了:::");
   Page *root = buffer_pool_manager_->FetchPage(root_page_id_);
   if (root == nullptr) {
     throw "no page can find";
@@ -49,10 +50,12 @@ auto BPLUSTREE_TYPE::FindLeafPage(const KeyType &key) -> LeafPage * {
   while (!node->IsLeafPage()) {
     auto internal = reinterpret_cast<InternalPage *>(node);
     page_id_t child_id = internal->LookUp(key, comparator_);  // internal_page的ValueType直接写page_id了
+    LOG_DEBUG("继续往下找前要先Unpin路径上的internal父节点:::");
     buffer_pool_manager_->UnpinPage(internal->GetPageId(), false);
     node = reinterpret_cast<BPlusTreePage *>(buffer_pool_manager_->FetchPage(child_id)->GetData());
   }
   return static_cast<LeafPage *>(node);  // 是不是编译器检测出BPlusTreePage和LeafPage的继承关系就直接给上static_cast了
+  // 想用dynamic_cast呢，但是提示: bustub::BPlusTreePage is not polymorphic
 }
 
 /*****************************************************************************
@@ -67,7 +70,7 @@ INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *transaction) -> bool {
   LeafPage *leaf_page = FindLeafPage(key);
   ValueType value;
-  bool exist = leaf_page->Lookup(key, value, comparator_);  // 需要传value吗
+  bool exist = leaf_page->Lookup(key, value, comparator_);
   if (exist) {
     result->emplace_back(value);
   }
@@ -106,7 +109,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
   leaf_page->Insert(key, value, comparator_);    // leaf_page先插入后分裂
   if (leaf_page->GetSize() == leaf_max_size_) {  // leaf_page稳定状态下最大size只能到max_size-1
     // LeafPage *new_leaf_page = dynamic_cast<LeafPage>(Split(leafPage));  // 如果非要用基类而不是模板呢
-    LeafPage *new_leaf_page = Split(leaf_page);
+    LeafPage *new_leaf_page = Split(leaf_page);  // 这里的实现是把new_leaf_page的Unpin工作交给InsertIntoParent了
     InsertIntoParent(leaf_page, new_leaf_page->KeyAt(0), new_leaf_page, transaction);
     // 其实我感觉在这里Unpin(new_leaf_page)可能会比较好? 因为自己的事情自己做就不容易忘记
   }
@@ -159,7 +162,8 @@ auto BPLUSTREE_TYPE::Split(N *full_node) -> N * {
  * @param old_page 经过分裂后的full_page,后一半kv已经移到第三个参数new_page中了
  * @param key new_page中的第一元素, 就是要把他插入到parent中
  * @param new_page 存放full_page(old_page)中的后半部分kv
- * @param pTransaction
+ *
+ * 说个重要的(debug了两小时), 这里的设计是:old_page不用你Unpin, 但是new_page和你自己fetch的页面要你负责Unpin的哦
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::InsertIntoParent(BPlusTreePage *old_page, const KeyType &key, BPlusTreePage *new_page,
@@ -199,11 +203,11 @@ auto BPLUSTREE_TYPE::InsertIntoParent(BPlusTreePage *old_page, const KeyType &ke
   // 然后再做分裂(这个空间我还以为是要一个新页并且不能要24B的header,) 经过提醒恍然大悟page放不下可以用vector呀,
   // 不过看群友internal_page先插入后分裂是能过的,虽然插入后有越界的可能, 我也就先这样吧~
   parent_page->InsertAfterPageID(old_page->GetPageId(), key, new_page->GetPageId());
-  LOG_DEBUG("# Insert new_page_id=%d的第一个key into parent of %d(i.e.在page_id=%d后)", new_page->GetPageId(),
-            old_page->GetPageId(), old_page->GetPageId());
+  LOG_DEBUG("Insert new_page_id=%d的第一个key到%d的parent中, 而且就是在parent中page_id=%d的记录后)",
+            new_page->GetPageId(), old_page->GetPageId(), old_page->GetPageId());
   if (parent_page->GetSize() == internal_max_size_ + 1) {  // internal_page是先分裂后插入
     // 在B+Tree的函数中就没必要写parent_page->GetMaxSize()了
-    LOG_DEBUG("[InsertIntoParent] 达到internal_max_size_+1啦，危险分裂");
+    LOG_DEBUG("达到internal_max_size_+1啦，危险分裂(别骂了)");
     InternalPage *new_parent_page = Split(parent_page);
     InsertIntoParent(parent_page, new_parent_page->KeyAt(0), new_parent_page, pTransaction);
     // 注释掉先分裂后插入的逻辑，当前if外面的InsertAfterPageID移到了Split后(一个变三个啦,if外面还有一个InsertAfterPageID)
@@ -213,9 +217,11 @@ auto BPLUSTREE_TYPE::InsertIntoParent(BPlusTreePage *old_page, const KeyType &ke
     //    new_parent_page->InsertAfterPageID(old_page->GetPageId(), key, new_page->GetPageId());
     //    new_page->SetParentPageId(new_parent_page->GetPageId());
     //  }
-    return;
+    //  return;
   }
-  //  parent_page->InsertAfterPageID(old_page->GetPageId(), key, new_page->GetPageId());
+  //  parent_page->InsertAfterPageID(old_page->GetPageId(), key, new_page->GetPageId()); 这行也是原来先分裂后插入的逻辑
+  buffer_pool_manager_->UnpinPage(parent_page->GetPageId(), true);
+  buffer_pool_manager_->UnpinPage(new_page->GetPageId(), true);
 }
 
 /**
@@ -259,7 +265,21 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {}
  * @return : index iterator
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(); }
+auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
+  Page *root = buffer_pool_manager_->FetchPage(root_page_id_);
+  if (root == nullptr) {
+    throw "no page can find";
+  }
+  auto first_node = reinterpret_cast<BPlusTreePage *>(root->GetData());  // FindLeaf中就叫node的
+  while (!first_node->IsLeafPage()) {
+    auto first_internal = reinterpret_cast<InternalPage *>(first_node);
+    page_id_t first_child_id = first_internal->ValueAt(0);
+    buffer_pool_manager_->UnpinPage(first_internal->GetPageId(), false);
+    first_node = reinterpret_cast<BPlusTreePage *>(buffer_pool_manager_->FetchPage(first_child_id)->GetData());
+  }
+  //  return INDEXITERATOR_TYPE(); 原来andy返回的默认构造函数, 其实我感觉可以删除掉默认构造函数了
+  return INDEXITERATOR_TYPE(reinterpret_cast<B_PLUS_TREE_LEAF_PAGE_TYPE *>(first_node), 0, buffer_pool_manager_);
+}
 
 /*
  * Input parameter is low key, find the leaf page that contains the input key
@@ -267,7 +287,15 @@ auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE()
  * @return : index iterator
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(); }
+auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE {
+  auto start_leaf = FindLeafPage(key);
+  if (start_leaf == nullptr) {  // 确实哈, 还应该考虑没找到的情况
+    return INDEXITERATOR_TYPE(start_leaf, 0, buffer_pool_manager_);
+  }
+  int idx = start_leaf->KeyIndex(key, comparator_);
+  LOG_DEBUG("Begin iterator: [leaf:%d, idx:%d]", start_leaf->GetPageId(), idx);
+  return INDEXITERATOR_TYPE(start_leaf, idx, buffer_pool_manager_);
+}
 
 /*
  * Input parameter is void, construct an index iterator representing the end
@@ -275,7 +303,24 @@ auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE { return IN
  * @return : index iterator
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::End() -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(); }
+auto BPLUSTREE_TYPE::End() -> INDEXITERATOR_TYPE {
+  Page *root = buffer_pool_manager_->FetchPage(root_page_id_);
+  if (root == nullptr) {
+    throw "no page can find";
+  }
+  auto last_node = reinterpret_cast<BPlusTreePage *>(root->GetData());  // FindLeaf中这个变量名就叫node的
+  while (!last_node->IsLeafPage()) {
+    auto last_internal = reinterpret_cast<InternalPage *>(last_node);
+    page_id_t last_child_id = last_internal->ValueAt(last_internal->GetSize() - 1);
+    buffer_pool_manager_->UnpinPage(last_internal->GetPageId(), false);
+    last_node = reinterpret_cast<BPlusTreePage *>(buffer_pool_manager_->FetchPage(last_child_id)->GetData());
+  }
+  // buffer_pool_manager_->UnpinPage(last_node->GetPageId(), false); // 额这里不用Unpin的,马上就要调用析构函数了...
+  // for中的iterator != tree.End()会不停的创建和析构临时对象的, 而且每次查找End()也会重新找, 这里可能是一个优化点
+  LOG_DEBUG("End iterator : [leaf:%d, idx:%d]", last_node->GetPageId(), last_node->GetSize());
+  return INDEXITERATOR_TYPE(reinterpret_cast<B_PLUS_TREE_LEAF_PAGE_TYPE *>(last_node), last_node->GetSize(),
+                            buffer_pool_manager_);
+}
 
 /**
  * @return Page id of the root of this tree
@@ -383,7 +428,10 @@ INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::ToGraph(BPlusTreePage *page, BufferPoolManager *bpm, std::ofstream &out) const {
   std::string leaf_prefix("LEAF_");
   std::string internal_prefix("INT_");
-  if (page->IsLeafPage()) {
+  if (page == nullptr) {
+    LOG_DEBUG("Page is nullptr !!!!!!");
+  }
+  if (page->IsLeafPage()) {  // 每次忘了Unpin都是这里会空指针hhh
     auto *leaf = reinterpret_cast<LeafPage *>(page);
     // Print node name
     out << leaf_prefix << leaf->GetPageId();
@@ -448,7 +496,7 @@ void BPLUSTREE_TYPE::ToGraph(BPlusTreePage *page, BufferPoolManager *bpm, std::o
     // Print leaves
     for (int i = 0; i < inner->GetSize(); i++) {
       auto child_page = reinterpret_cast<BPlusTreePage *>(bpm->FetchPage(inner->ValueAt(i))->GetData());
-      ToGraph(child_page, bpm, out);
+      ToGraph(child_page, bpm, out);  // child_page不应该为nullptr呢, 除非buffer_pool满了fetch不出来页面了
       if (i > 0) {
         auto sibling_page = reinterpret_cast<BPlusTreePage *>(bpm->FetchPage(inner->ValueAt(i - 1))->GetData());
         if (!sibling_page->IsLeafPage() && !child_page->IsLeafPage()) {
@@ -497,10 +545,10 @@ void BPLUSTREE_TYPE::ToString(BPlusTreePage *page, BufferPoolManager *bpm) const
 }
 
 // 难道是为了预编译类？但是这样的话也不应该注释掉就编译错误了吧
-// template class BPlusTree<GenericKey<4>, RID, GenericComparator<4>>;
+template class BPlusTree<GenericKey<4>, RID, GenericComparator<4>>;
 template class BPlusTree<GenericKey<8>, RID, GenericComparator<8>>;
 template class BPlusTree<GenericKey<16>, RID, GenericComparator<16>>;
-// template class BPlusTree<GenericKey<32>, RID, GenericComparator<32>>;
-// template class BPlusTree<GenericKey<64>, RID, GenericComparator<64>>;
+template class BPlusTree<GenericKey<32>, RID, GenericComparator<32>>;
+template class BPlusTree<GenericKey<64>, RID, GenericComparator<64>>;
 
 }  // namespace bustub

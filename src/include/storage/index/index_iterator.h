@@ -24,6 +24,7 @@ class IndexIterator {
  public:
   // you may define your own constructor based on your member variables
   IndexIterator();
+  IndexIterator(B_PLUS_TREE_LEAF_PAGE_TYPE *leaf, int index, BufferPoolManager *bpm);
   ~IndexIterator();  // NOLINT
 
   auto IsEnd() -> bool;
@@ -32,12 +33,16 @@ class IndexIterator {
 
   auto operator++() -> IndexIterator &;
 
-  auto operator==(const IndexIterator &itr) const -> bool { throw std::runtime_error("unimplemented"); }
-
-  auto operator!=(const IndexIterator &itr) const -> bool { throw std::runtime_error("unimplemented"); }
+  // ==和!= andy在头文件里抛个异常就不管了...
+  auto operator==(const IndexIterator &itr) const -> bool;
+  auto operator!=(const IndexIterator &itr) const -> bool;
 
  private:
   // add your own private member variables here
+  //  MappingType rid_kv;
+  int index_;
+  B_PLUS_TREE_LEAF_PAGE_TYPE *leaf_;
+  BufferPoolManager *bpm_;
 };
 
 }  // namespace bustub
